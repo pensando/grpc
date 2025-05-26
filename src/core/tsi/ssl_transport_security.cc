@@ -139,6 +139,9 @@ static const unsigned char kSslSessionIdContext[] = {'g', 'r', 'p', 'c'};
 #if !defined(OPENSSL_IS_BORINGSSL) && !defined(OPENSSL_NO_ENGINE)
 static const char kSslEnginePrefix[] = "engine:";
 #endif
+#if OPENSSL_VERSION_NUMBER >= 0x30000000
+static const int kSslEcCurveNames[] = {NID_X9_62_prime256v1};
+#endif
 
 #if OPENSSL_VERSION_NUMBER < 0x10100000
 static gpr_mu* g_openssl_mutexes = nullptr;
@@ -628,7 +631,7 @@ static tsi_result ssl_ctx_use_certificate_chain(SSL_CTX* context,
   return result;
 }
 
-#if !defined(OPENSSL_IS_BORINGSSL) && !defined(OPENSSL_NO_ENGINE)
+#if !defined(OPENSSL_IS_BORINGSSL) && OPENSSL_VERSION_NUMBER < 0x30000000L && !defined(OPENSSL_NO_ENGINE)
 static tsi_result ssl_ctx_use_engine_private_key(SSL_CTX* context,
                                                  const char* pem_key,
                                                  size_t pem_key_size) {
@@ -733,7 +736,7 @@ static tsi_result ssl_ctx_use_pem_private_key(SSL_CTX* context,
 static tsi_result ssl_ctx_use_private_key(SSL_CTX* context, const char* pem_key,
                                           size_t pem_key_size) {
 // BoringSSL does not have ENGINE support
-#if !defined(OPENSSL_IS_BORINGSSL) && !defined(OPENSSL_NO_ENGINE)
+#if !defined(OPENSSL_IS_BORINGSSL) && OPENSSL_VERSION_NUMBER < 0x30000000L && !defined(OPENSSL_NO_ENGINE)
   if (strncmp(pem_key, kSslEnginePrefix, strlen(kSslEnginePrefix)) == 0) {
     return ssl_ctx_use_engine_private_key(context, pem_key, pem_key_size);
   } else
@@ -856,6 +859,7 @@ static tsi_result populate_ssl_context(
     return TSI_INVALID_ARGUMENT;
   }
   {
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
     EC_KEY* ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
     if (!SSL_CTX_set_tmp_ecdh(context, ecdh)) {
       gpr_log(GPR_ERROR, "Could not set ephemeral ECDH key.");
@@ -864,6 +868,13 @@ static tsi_result populate_ssl_context(
     }
     SSL_CTX_set_options(context, SSL_OP_SINGLE_ECDH_USE);
     EC_KEY_free(ecdh);
+#else
+    if (!SSL_CTX_set1_groups(context, kSslEcCurveNames, 1)) {
+      gpr_log(GPR_ERROR, "Could not set ephemeral ECDH key.");
+      return TSI_INTERNAL_ERROR;
+    }
+    SSL_CTX_set_options(context, SSL_OP_SINGLE_ECDH_USE);
+#endif
   }
   return TSI_OK;
 }
