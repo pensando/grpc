@@ -71,8 +71,10 @@ bool TraceFlagList::Set(const char* name, bool enabled) {
 }
 
 void TraceFlagList::Add(TraceFlag* flag) {
-  flag->next_tracer_ = root_tracer_;
-  root_tracer_ = flag;
+  TraceFlag** next = &root_tracer_;
+  while(*next) next = &(*next)->next_tracer_;
+  flag->next_tracer_ = nullptr;
+  *next = flag;
 }
 
 void TraceFlagList::LogAllTracers() {
